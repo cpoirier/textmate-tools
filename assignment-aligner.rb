@@ -50,7 +50,7 @@
 #
 # ===================================================================================
 #
-# [Website]   http://github.org/cpoirier/tools/textmate/assignment-aligner.rb
+# [Website]   https://github.com/cpoirier/tools/blob/master/textmate/assignment-aligner.rb
 # [Copyright] Copyright Chris Poirier 2006, 2008.
 # [License]   Licensed under the Apache License, Version 2.0 (the "License");
 #             you may not use this file except in compliance with the License.
