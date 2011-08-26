@@ -42,7 +42,7 @@ into (depending on what's enabled):
 
 # The Starlight theme (Starlight.tmTheme)
 
-<a href='https://raw.github.com/cpoirier/tools/master/textmate/Starlight.tmTheme' title='Starlight Theme'><img src='http://courage-my-friend.org/wp-content/uploads/2008/01/starlight-theme-sample.jpeg' alt='Starlight Theme Sample' /></a>
+<a href='https://raw.github.com/cpoirier/tools/master/textmate/Starlight.tmTheme' title='Starlight Theme'><img src='https://github.com/cpoirier/tools/raw/master/textmate/starlight-theme-sample.jpg' alt='Starlight Theme Sample' /></a>
 
 A while back, I noticed something odd, quite by chance.  I was using a web interface to Subversion to look at a previous version of a source file I was editing.  The text was displayed in black on beige on the screen, and, just glancing down the page -- not even looking for it -- two variable name typos jumped out at me, clear as day.  I couldn't believe I'd missed them.
 
