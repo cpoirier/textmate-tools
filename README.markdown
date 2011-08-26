@@ -1,4 +1,4 @@
-# Assignment block aligner (assignment-aligner.rb)
+# [Assignment block aligner](assignment-aligner.rb)
 
 Turns stuff like:
 
@@ -36,11 +36,11 @@ into (depending on what's enabled):
      boolean        meh      = false;
 
 
-**Note:** Version 0.1 of the (assignment block aligner)[assignment-aligner.rb] ships with TextMate, but doesn't handle typed languages. The current version does. This current version also, however, contains a bug I have yet to track down, that can cause the script to go into an endless loop. If this happens to you, kill the script and undo the change in TextMate to get your original text back.
+**Note:** Version 0.1 of the [assignment block aligner](assignment-aligner.rb) ships with TextMate, but doesn't handle typed languages. The current version does. This current version also, however, contains a bug I have yet to track down, that can cause the script to go into an endless loop. If this happens to you, kill the script and undo the change in TextMate to get your original text back.
 
 
 
-# The Starlight theme (Starlight.tmTheme)
+# [The Starlight theme](Starlight.tmTheme)
 
 <a href='https://raw.github.com/cpoirier/tools/master/textmate/Starlight.tmTheme' title='Starlight Theme'><img src='https://github.com/cpoirier/tools/raw/master/textmate/starlight-theme-sample.jpg' alt='Starlight Theme Sample' /></a>
 
