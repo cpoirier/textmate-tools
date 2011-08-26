@@ -1,4 +1,4 @@
-## Assignment block aligner
+# (Assignment block aligner)[https://github.com/cpoirier/tools/blob/master/textmate/assignment-aligner.rb]
 
 Turns stuff like:
 
@@ -40,7 +40,7 @@ into (depending on what's enabled):
 
 
 
-## The Starlight theme 
+# (The Starlight theme)[https://github.com/cpoirier/tools/blob/master/textmate/Starlight.tmTheme] 
 
 <a href='https://raw.github.com/cpoirier/tools/master/textmate/Starlight.tmTheme' title='Starlight Theme'><img src='http://courage-my-friend.org/wp-content/uploads/2008/01/starlight-theme-sample.jpeg' alt='Starlight Theme Sample' /></a>
 
