@@ -147,9 +147,10 @@ begin
          (
             (?!(if|elsif|else|while|for)(\(|\s))      # We are only interested in variable declarations, so exclude other options
             \w+(\[[^\]]*\])*                          # Look for an identifier followed by an optional set of [] -- this is the type name
-            (\s*\**\s*)*                              # Allow for pointer markers
-            # \w+(\[[^\]]*\])*                          # Look for an identifier followed by an optional set of [] -- this is the variable name
-            # \s*([+\-*\/]?=|\;)                        # Finally, require an assignment or EOS, to cut down on false positives
+            (\s*\*+)*                                 # Allow for pointer markers
+            \s*\w+                                    # Look for an identifier followed -- this is the variable name
+            \s*(\[[^\]]*\])*                          # Allow an optional set of [] after the variable name
+            \s*([+\-*\/]?=|\;)                        # Finally, require an assignment or EOS, to cut down on false positives
          )
       /x
 
@@ -307,10 +308,6 @@ begin
       search_bottom = lines.length
       search_failed = false
       
-      p lines[start_on - 1]
-      p relevant_line_patterns[0]
-      p lines[start_on - 1] !~ relevant_line_patterns[0]
-      exit
       if lines[start_on - 1] !~ relevant_line_patterns then
          if lines[start_on - 2] =~ relevant_line_patterns then
             search_bottom = start_on = start_on - 1
@@ -343,7 +340,6 @@ begin
          end
       end
    end
-   exit
 
 
 
