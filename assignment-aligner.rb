@@ -92,7 +92,6 @@ begin
 
 
 
-
    #====================================================================================
    # We care about two kinds of lines: assignment statements and variable declarations.
    # In languages like Ruby, variable declarations *are* assignment statements.  However,
@@ -149,8 +148,8 @@ begin
             (?!(if|elsif|else|while|for)(\(|\s))      # We are only interested in variable declarations, so exclude other options
             \w+(\[[^\]]*\])*                          # Look for an identifier followed by an optional set of [] -- this is the type name
             (\s*\**\s*)*                              # Allow for pointer markers
-            \w+(\[[^\]]*\])*                          # Look for an identifier followed by an optional set of [] -- this is the variable name
-            \s*([+\-*\/]?=|\;)                        # Finally, require an assignment or EOS, to cut down on false positives
+            # \w+(\[[^\]]*\])*                          # Look for an identifier followed by an optional set of [] -- this is the variable name
+            # \s*([+\-*\/]?=|\;)                        # Finally, require an assignment or EOS, to cut down on false positives
          )
       /x
 
@@ -307,7 +306,11 @@ begin
       search_top    = 1
       search_bottom = lines.length
       search_failed = false
-
+      
+      p lines[start_on - 1]
+      p relevant_line_patterns[0]
+      p lines[start_on - 1] !~ relevant_line_patterns[0]
+      exit
       if lines[start_on - 1] !~ relevant_line_patterns then
          if lines[start_on - 2] =~ relevant_line_patterns then
             search_bottom = start_on = start_on - 1
@@ -321,7 +324,7 @@ begin
       #
       # Now with the search boundaries set, start looking for
       # the block top and bottom.
-   
+
       unless search_failed
          start_on.downto(search_top) do |number|
             if lines[number-1] =~ relevant_line_patterns then
@@ -340,6 +343,7 @@ begin
          end
       end
    end
+   exit
 
 
 
