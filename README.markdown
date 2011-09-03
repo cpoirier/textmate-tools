@@ -40,7 +40,7 @@ into (depending on what's enabled):
 
 
 
-# [The Starlight theme](https://github.com/cpoirier/tools/blob/master/textmate/Starlight.tmTheme)
+# [The Starlight theme](https://github.com/cpoirier/textmate-tools/blob/master/textmate/Starlight.tmTheme)
 
 <a href='https://raw.github.com/cpoirier/tools/master/textmate/Starlight.tmTheme' title='Starlight Theme'><img src='https://github.com/cpoirier/tools/raw/master/textmate/starlight-theme-sample.jpg' alt='Starlight Theme Sample' /></a>
 
