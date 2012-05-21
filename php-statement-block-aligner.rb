@@ -244,16 +244,35 @@ end
 
 
 class Expression < Product
-   def initialize( type, *elements )
+   def initialize( type, elements = {} )
       super(type)
-      @elements = elements.flatten
+      @elements = elements
    end
    
    attr_reader :elements
    
-   def dump( indent = "", stream = $stdout )
-      stream.puts "#{indent}Expression #{@type}:"
-      @elements.each{|e| e ? e.dump(indent + "   ", stream) : "nil"}
+   def dump( indent = "", stream = $stdout, inline = false )
+      stream.print indent unless inline
+      stream.puts "Expression #{@type}:"
+      
+      width = @elements.keys.collect{|k| k.to_s.length}.max()
+      @elements.each do |n, e| 
+         child_indent = indent + "   "
+         stream.print "#{child_indent}#{n.to_s.ljust(width)}: "
+         
+         case e
+         when Expression 
+            e.dump(child_indent + (" " * width) + ": ", stream, true)
+         when Token            
+            stream.puts "#{e.type} '#{e.string}'"
+         when NilClass
+            stream.puts "nil"
+         else
+            raise "BUG: found unexpected expression element of class #{e.class.name}"
+         end
+      end
+      
+      stream.puts indent if inline
    end
 end
 
@@ -266,11 +285,12 @@ class PHPLineParser
       self.new(PHPTokenizer.new(line, number)).tap do |parser|
          parser.instance_eval do
             parse_statements().tap do |tree|
-               result = tree
-               log(:tree) do |stream|
-                  stream.puts ""
-                  stream.puts "   #{line}"
-                  tree.dump("   ", stream)
+               if result = tree then
+                  log(:tree) do |stream|
+                     stream.puts ""
+                     stream.puts "   #{line}"
+                     tree.dump("   ", stream)
+                  end
                end
             end
          end
@@ -377,7 +397,7 @@ protected
       
       if expression = send(lhs_parser) then
          while la_is_one_of?(*operators)
-            expression = Expression.new(type, expression, consume_one_of(*operators), fail_unless(send(rhs_parser)))
+            expression = Expression.new(type, :lhs => expression, :op => consume_one_of(*operators), :rhs => fail_unless(send(rhs_parser)))
          end
       end
       
@@ -393,41 +413,27 @@ protected
    
 protected
    
-   def parse_statements()
+   def parse_statements( terminator = nil )
       trace()
-      statements = []
-      while la()
-         statements << fail_unless(parse_statement())
-      end
-      
-      case statements.length
-      when 0
+      if la() && (!terminator || la() != terminator) then
+         first = fail_unless(parse_statement())
+         la() ? Expression.new(:statement_sequence, :first => first, :rest => parse_statements()) : first
+      else
          nil
-      when 1
-         statements[0]
-      when 2
-         Expression.new(:statement_sequence, statements)
       end
    end
    
    
    def parse_statement()
       trace()
-      attempt{parse_if_statement()} || attempt{parse_while_statement()} || Expression.new(:statement, fail_unless(parse_sequence_or_expression()), consume(:semicolon))
+      attempt{parse_if_statement()} || attempt{parse_while_statement()} || Expression.new(:statement, :body => fail_unless(parse_sequence_or_expression()), :terminator => consume(:semicolon))
    end
    
    
    def parse_block()
       trace()
       if la_is?(:open_brace) then
-         open_brace = consume(:open_brace)
-
-         statements = []
-         while la() != :close_brace
-            statements << fail_unless(parse_statement());
-         end
-            
-         Expression.new(:statement_block, open_brace, Expression.new(:statement_sequence, statements), consume(:close_brace))
+         Expression.new(:statement_block, :open_brace => consume(:open_brace), :body => parse_statements(:close_brace), :close_brace => consume(:close_brace))
       else
          parse_statement()
       end
@@ -436,13 +442,13 @@ protected
    
    def parse_if_statement()
       trace()
-      Expression.new(:if_statement, consume(:keyword_if), consume(:open_paren), fail_unless(parse_expression()), consume(:close_paren), parse_block());
+      Expression.new(:if_statement, :keyword => consume(:keyword_if), :open_paren => consume(:open_paren), :condition => fail_unless(parse_expression()), :close_paren => consume(:close_paren), :body => parse_block());
    end
    
    
    def parse_while_statement()
       trace()
-      Expression.new(:while_statement, consume(:keyword_while), consume(:open_paren), fail_unless(parse_expression()), consume(:close_paren), parse_block());
+      Expression.new(:while_statement, :keyword => consume(:keyword_while), :open_paren => consume(:open_paren), :condition => fail_unless(parse_expression()), :close_paren => consume(:close_paren), :body => parse_block());
    end
    
    
@@ -455,7 +461,7 @@ protected
    def parse_parenthesized_expression()
       trace()
       if la() == :open_paren then
-         Expression(:parenthesized_expression, consume(:open_paren), parse_expression(), consume(:close_paren))
+         Expression(:parenthesized_expression, :open_paren => consume(:open_paren), :body => parse_expression(), :close_paren => consume(:close_paren))
       else
          parse_sequence_or_expression()
       end
@@ -482,7 +488,7 @@ protected
    def parse_assignment_expression()
       trace()
       expression = attempt do
-         Expression.new(:assignment, fail_unless(fail_unless(parse_lh_expression())), consume(:assigner), fail_unless(parse_assignment_expression()))
+         Expression.new(:assignment, :lhs => fail_unless(parse_lh_expression()), :op => consume(:assigner), :rhs => fail_unless(parse_assignment_expression()))
       end
       
       expression || parse_ternary_expression()
@@ -492,7 +498,7 @@ protected
    def parse_ternary_expression()
       trace()
       expression = attempt do
-         Expression.new(fail_unless(parse_logical_or_expression()), consume(:question), fail_unless(parse_ternary_expression()), consume(:colon), fail_unless(parse_ternary_expression()))
+         Expression.new(:ternary_expression, :condition => fail_unless(parse_logical_or_expression()), :question => consume(:question), :true_branch => fail_unless(parse_ternary_expression()), :colon => consume(:colon), :false_branch => fail_unless(parse_ternary_expression()))
       end
       
       expression || parse_logical_or_expression()
@@ -553,24 +559,24 @@ protected
    
    def parse_logical_not_expression()
       trace()
-      la() == :exclamation ? Expression.new(:logical_not, consume(:exclamation), fail_unless(parse_logical_not())) : parse_at_expression()
+      la() == :exclamation ? Expression.new(:logical_not, :op => consume(:exclamation), :expression => fail_unless(parse_logical_not())) : parse_at_expression()
    end
    
    def parse_at_expression()
       trace()
-      la() == :at ? Expression.new(:error_suppression, consume(:at), fail_unless(parse_at_expression())) : parse_unary_expression()
+      la() == :at ? Expression.new(:error_suppression, :op => consume(:at), :expression => fail_unless(parse_at_expression())) : parse_unary_expression()
    end
    
    def parse_unary_expression()
       trace()
       expression = case la()
       when :tilde
-         Expression.new(:bitwise_complement, consume(:tilde), fail_unless(parse_at_expression()))
+         Expression.new(:bitwise_complement, :op => consume(:tilde), :expression => fail_unless(parse_at_expression()))
       when :minus
-         Expression.new(:negation, consume(:minus), fail_unless(parse_at_expression()))
+         Expression.new(:negation, :op => consume(:minus), :expression => fail_unless(parse_at_expression()))
       when :open_paren
          if la(2) == :word && la(3) == :close_paren && %w(int float string array object bool).member?(la(2, true).string) then
-            Expression.new(:cast, consume(:open_paren), consume(:word), consume(:close_paren), fail_unless(parse_unary_expression()))
+            Expression.new(:type_cast, :open_paren => consume(:open_paren), :type => consume(:word), :close_paren => consume(:close_paren), :expression => fail_unless(parse_unary_expression()))
          end
       end
       
@@ -579,19 +585,19 @@ protected
    
    def parse_prefix_expression()
       trace()
-      la_is_one_of?(:plusplus, :minusminus) ? Expression.new(:prefix, consume(), parse_variable_expression()) : parse_postfix_expression()
+      la_is_one_of?(:plusplus, :minusminus) ? Expression.new(:prefix, :op => consume(), :expression => parse_variable_expression()) : parse_postfix_expression()
    end
    
    def parse_postfix_expression()
       trace()
       expression = parse_function_call_expression()
-      la_is_one_of?(:plusplus, :minusminus) ? Expression.new(:postfix, expression, consume()) : expression
+      la_is_one_of?(:plusplus, :minusminus) ? Expression.new(:postfix, :expression => expression, :op => consume()) : expression
    end
    
    def parse_function_call_expression()
       expression = parse_object_expression()
       if la() == :open_paren then
-         expression = Expression.new(:function_call, expression, consume(:open_paren), attempt_optional{parse_comma_list()}, consume(:close_paren))
+         expression = Expression.new(:function_call, :name => expression, :open_paren => consume(:open_paren), :parameters => attempt_optional{parse_comma_list()}, :close_paren => consume(:close_paren))
       end
       expression
    end
@@ -599,7 +605,7 @@ protected
    def parse_object_expression()
       expression = parse_simple_expression()
       if la() == :scoper then
-         expression = Expression.new(:object_expression, expression, consume(:scoper), fail_unless(parse_object_expression()))
+         expression = Expression.new(:object_expression, :expression => expression, :scoper => consume(:scoper), :offset => fail_unless(parse_object_expression()))
       end
       expression
    end
@@ -609,7 +615,7 @@ protected
       when :word
          expression = consume(:word)
          while la() == :open_bracket
-            expression = Expression.new(:array_expression, expression, consume(:open_bracket), fail_unless(parse_expression()), consume(:close_bracket))
+            expression = Expression.new(:array_expression, :array => expression, :open_bracket => consume(:open_bracket), :index => fail_unless(parse_expression()), :close_bracket => consume(:close_bracket))
          end
          expression
       when :string
@@ -624,14 +630,14 @@ protected
    def parse_comma_list()
       trace()
       lhs = parse_expression()
-      la() == :comma ? Expression.new(:comma_list, lhs, consume(:comma), fail_unless(parse_comma_list())) : lhs
+      la() == :comma ? Expression.new(:comma_list, :lhs => lhs, :comma => consume(:comma), :rhs => fail_unless(parse_comma_list())) : lhs
    end
 
 
    def parse_lh_expression()
       trace()
       if la() == :at then
-         Expression.new(:error_suppression, consume(:at), fail_unless(parse_lh_expression()))
+         Expression.new(:error_suppression, :op => consume(:at), :expression => fail_unless(parse_lh_expression()))
       else
          (attempt{parse_lh_list_expression()} || parse_object_expression())
       end
@@ -640,7 +646,7 @@ protected
    
    def parse_lh_list_expression()
       trace()
-      Expression.new(consume(:word, "list"), consume(:open_paren), fail_unless(parse_comma_list()), consume(:close_paren))
+      Expression.new(:list_receiver, :keyword => consume(:word, "list"), :open_paren => consume(:open_paren), :targets => fail_unless(parse_comma_list()), :close_paren => consume(:close_paren))
    end
    
       
@@ -650,9 +656,35 @@ end
 
 
 # =============================================================================================
-# THE ALIGNER
+# THE COLUMNATOR
 
-
+class Columnator
+   def columnate( trees )
+      columnate_sequence_expression(trees)
+   end
+   
+   # def columnate_sequence_expression( trees )
+   #    columns = {:lhs => [], :operator => [], : rhs => []}
+   #    trees.each do |tree|
+   #       if tree.type == :sequence_or || tree.type == :sequence_and || tree.type == :sequence_xor then
+   #          columns[:lhs] << 
+   #       else
+   #       end
+   #    end
+   # end
+   # 
+   
+   
+protected
+   def initialize( trees )
+      @trees = trees
+   end
+   
+   def layout_sequence()
+      
+   end
+   
+end
 
 
 
@@ -729,10 +761,10 @@ begin
    trees = []
    block_top.upto(block_bottom).each do |i|
       trees << PHPLineParser.parse(lines[i], i + 1)
-   end
+   end   
    
-   
-rescue
+rescue ParseFailed, AlignmentTerminated
+   LOG_STREAM.puts "Parse Failed"
    block_top.upto(block_bottom).each do |i|
       puts lines[i]
    end
