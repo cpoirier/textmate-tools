@@ -941,7 +941,8 @@ end
 lines          = STDIN.readlines()
 block_top      = 0
 block_bottom   = lines.length - 1
-leading_spaces = 0
+leading_spaces = lines[block_top].leading_spaces
+
 
 #
 # If called from TextMate, figure out what lines to process.
@@ -953,11 +954,7 @@ if ENV.member?("TM_LINE_NUMBER") then
    # If called on a selection, every statement is in the block.  If called on the document, we 
    # start on the current line and look and down for the start and end of the block.
 
-   if selected_text then
-      block_top    = 1
-      block_bottom = lines.length
-   else
-   
+   unless selected_text 
       start_on     = ENV["TM_LINE_NUMBER"].to_i - 1
       block_top    = start_on
       block_bottom = start_on
@@ -994,8 +991,10 @@ end
 #
 # Output the lines before, unchanged.
 
-0.upto(block_top - 1) do |i|
-   puts lines[i]
+if block_top > 0 then
+   0.upto(block_top - 1) do |i|
+      puts lines[i]
+   end
 end
 
 
@@ -1021,6 +1020,8 @@ end
 #
 # Output the lines after, unchanged.
 
-(block_bottom + 1).upto(lines.length) do |i|
-   puts lines[i]
+if block_bottom + 1 < lines.length then
+   (block_bottom + 1).upto(lines.length) do |i|
+      puts lines[i]
+   end
 end
