@@ -498,18 +498,9 @@ protected
    
    def parse_expression()
       trace()
-      parse_parenthesized_expression()
+      parse_sequence_or_expression()
    end
    
-   
-   def parse_parenthesized_expression()
-      trace()
-      if la() == :open_paren then
-         Expression(:parenthesized_expression, :open_paren => consume(:open_paren), :body => parse_expression(), :close_paren => consume(:close_paren))
-      else
-         parse_sequence_or_expression()
-      end
-   end
    
    def parse_sequence_or_expression()
       trace()
@@ -608,8 +599,18 @@ protected
    
    def parse_at_expression()
       trace()
-      la() == :at ? Expression.new(:error_suppression, :op => consume(:at), :expression => fail_unless(parse_at_expression())) : parse_unary_expression()
+      la() == :at ? Expression.new(:error_suppression, :op => consume(:at), :expression => fail_unless(parse_at_expression())) : parse_parenthesized_expression()
    end
+   
+   def parse_parenthesized_expression()
+      trace()
+      if la() == :open_paren then
+         Expression.new(:parenthesized_expression, :open_paren => consume(:open_paren), :body => parse_expression(), :close_paren => consume(:close_paren))
+      else
+         parse_unary_expression()
+      end
+   end
+   
    
    def parse_unary_expression()
       trace()
@@ -831,12 +832,16 @@ class CellGroup
          types = [:assignment, :equality_test, :comparison_test]
          columnate_binary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
          
+         types = [:ternary_expression]
+         columnate_ternary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
+
          types = [:error_suppression, :prefix]
          columnate_unary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
 
+         types = [:parenthesized_expression]
+         columnate_parenthesized_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
+
          columnate_function_calls() if @cells.any?{|cell| cell.matches?(:function_call)}
-         
-         
          
          columnate_array_indices() if @cells.any?{|cell| cell.matches?(:array_expression)}
       end
@@ -870,6 +875,23 @@ class CellGroup
    end
    
    
+   def columnate_ternary_expressions( types )
+      condition_group = derive_new(:column => 1, :of => 5)
+      question_group  = derive_new(:column => 2, :of => 5, :before => " ", :after => " ")
+      true_group      = derive_new(:column => 3, :of => 5)
+      colon_group     = derive_new(:column => 4, :of => 5, :before => " ", :after => " ")
+      false_group     = derive_new(:column => 5, :of => 5)
+      
+      split(nil, *types) do |expression|
+         [condition_group.add(expression.condition), question_group.add(expression.question), true_group.add(expression.true_branch), colon_group.add(expression.colon), false_group.add(expression.false_branch)]
+      end
+      
+      condition_group.columnate_by_pattern()
+      true_group.columnate_by_pattern()
+      false_group.columnate_by_pattern()
+   end
+
+
    def columnate_unary_expressions( types )
       op_group   = derive_new(:column => 1, :of => 2)
       body_group = derive_new(:column => 2, :of => 2)
@@ -879,6 +901,19 @@ class CellGroup
       end
       
       body_group.columnate_by_pattern() unless body_group.empty?
+   end
+
+
+   def columnate_parenthesized_expressions( types )
+      open_group  = derive_new(:column => 1, :of => 3)
+      body_group  = derive_new(:column => 2, :of => 3)
+      close_group = derive_new(:column => 3, :of => 3)
+      
+      split(nil, *types) do |expression|
+         [open_group.add(expression.open_paren), body_group.add(expression.body), close_group.add(expression.close_paren)]
+      end
+      
+      body_group.columnate_by_pattern()
    end
    
    
