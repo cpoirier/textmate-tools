@@ -663,8 +663,8 @@ protected
          
    def parse_comma_list()
       trace()
-      lhs = parse_expression()
-      la() == :comma ? Expression.new(:comma_list, :lhs => lhs, :comma => consume(:comma), :rhs => fail_unless(parse_comma_list())) : lhs
+      first = parse_expression()
+      la() == :comma ? Expression.new(:comma_list, :first => first, :comma => consume(:comma), :rest => fail_unless(parse_comma_list())) : first
    end
 
 
@@ -815,13 +815,20 @@ class CellGroup
          types = [:sequence_or, :sequence_and, :sequence_xor]
          columnate_sequences(types) if @cells.any?{|cell| cell.matches?(*types)}
          
-         types = [:assignment, :equality_test, :comparison_test]
-         columnate_binary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
-         
          types = [:logical_or, :logical_and, :bitwise_or, :bitwise_and, :bitwise_shift, :addition, :multiplication]
          columnate_binary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
 
+         types = [:assignment, :equality_test, :comparison_test]
+         columnate_binary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
+         
+         types = [:error_suppression, :prefix]
+         columnate_unary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
+
          columnate_function_calls() if @cells.any?{|cell| cell.matches?(:function_call)}
+         
+         
+         
+         columnate_array_indices() if @cells.any?{|cell| cell.matches?(:array_expression)}
       end
    end
    
@@ -853,27 +860,71 @@ class CellGroup
    end
    
    
+   def columnate_unary_expressions( types )
+      op_group   = derive_new(:column => 1, :of => 2)
+      body_group = derive_new(:column => 2, :of => 2)
+      
+      split(nil, *types) do |expression|
+         [op_group.add(expression.op), body_group.add(expression.expression)]
+      end
+      
+      body_group.columnate_by_pattern() unless body_group.empty?
+   end
+   
+   
    def columnate_function_calls()      
-      0.upto(20) do |i|
+      0.upto(20) do |parameter_count|
          name_group       = derive_new(:column => 1, :of => 4, :variable_width => true)
          open_group       = derive_new(:column => 2, :of => 4)
          parameters_group = derive_new(:column => 3, :of => 4)
          close_group      = derive_new(:column => 4, :of => 4)
          
          each do |cell|
-            if cell.matches?(:function_call){|expression| i == count_parameters(expression.parameters)} then
+            if cell.matches?(:function_call, :list_receiver){|expression| parameter_count == count_parameters(expression.parameters)} then
                expression = cell.contents
                cell.contents = [name_group.add(expression.name), open_group.add(expression.open_paren), parameters_group.add(expression.parameters), close_group.add(expression.close_paren)]
             end
          end
+
+         parameters_group.columnate_comma_lists() if parameter_count > 0
       end
    end
    
    
+   def columnate_comma_lists()
+      first_group = derive_new(:column => 1, :of => 3)
+      comma_group = derive_new(:column => 2, :of => 3, :after => " ")
+      rest_group  = derive_new(:column => 3, :of => 3)
+      
+      each do |cell|
+         if cell.matches?(:comma_list) then
+            comma_list = cell.contents
+            cell.contents = [first_group.add(comma_list.first), comma_group.add(comma_list.comma), rest_group.add(comma_list.rest)]
+         end
+      end
+      
+      first_group.columnate_by_pattern()
+      rest_group.columnate_comma_lists() unless rest_group.empty?
+   end
+   
+   
+   def columnate_array_indices()
+      array_group = derive_new(:column => 1, :of => 4)
+      open_group  = derive_new(:column => 2, :of => 4)
+      index_group = derive_new(:column => 3, :of => 4)
+      close_group = derive_new(:column => 4, :of => 4)
+      
+      split(nil, :array_expression) do |expression|
+         [array_group.add(expression.array), open_group.add(expression.open_bracket), index_group.add(expression.index), close_group.add(expression.close_bracket)]
+      end
+      
+      index_group.columnate_by_pattern()
+   end
+   
    def count_parameters( parameters )
       return 0 if parameters.nil?
       return 1 unless parameters.type == :comma_list
-      return 1 + count_parameters(parameters.rhs)
+      return 1 + count_parameters(parameters.rest)
    end
    
 end
