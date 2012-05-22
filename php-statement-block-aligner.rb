@@ -28,7 +28,7 @@
 #             limitations under the License.
 # =============================================================================================
 
-LOG_CONTROL       = {:parse => false, :tree => true}
+LOG_CONTROL       = {:parse => false, :tree => false}
 LOG_STREAM        = $stderr
 ALIGN_SEMICOLONS  = true
 
@@ -938,9 +938,10 @@ end
 # PROCESS THE INPUT
 
 
-lines        = STDIN.readlines()
-block_top    = 0
-block_bottom = lines.length - 1
+lines          = STDIN.readlines()
+block_top      = 0
+block_bottom   = lines.length - 1
+leading_spaces = 0
 
 #
 # If called from TextMate, figure out what lines to process.
@@ -962,9 +963,10 @@ if ENV.member?("TM_LINE_NUMBER") then
       block_bottom = start_on
    
       # 
-      # If we are on a blank line, move up until we find something that isn't.
+      # If we are on a blank line or a line with just a closing brace, move up until we find 
+      # something that isn't.
    
-      while start_on >= 0 && lines[start_on].strip.empty?
+      while start_on >= 0 && (lines[start_on].strip.empty? || lines[start_on].strip == "}")
          start_on -= 1
       end
    
@@ -977,12 +979,12 @@ if ENV.member?("TM_LINE_NUMBER") then
       leading_spaces = lines[start_on].leading_spaces
    
       start_on.downto(0) do |i|
-         break if lines[i].strip.empty? || lines[i].leading_spaces != leading_spaces
+         break if lines[i].nil? || lines[i].strip.empty? || lines[i].leading_spaces != leading_spaces
          block_top = i
       end
    
       start_on.upto(lines.length) do |i|
-         break if lines[i].strip.empty? || lines[i].leading_spaces != leading_spaces
+         break if lines[i].nil? || lines[i].strip.empty? || lines[i].leading_spaces != leading_spaces
          block_bottom = i
       end
    end
@@ -1001,7 +1003,7 @@ end
 # Process the subject lines.
 
 begin
-   cells = CellGroup.new(:variable_width => true, :after => "\n")
+   cells = CellGroup.new(:variable_width => true, :before => (" " * leading_spaces), :after => "\n")
    block_top.upto(block_bottom).each do |i|
       cells.add(PHPLineParser.parse(lines[i], i + 1))
    end   
@@ -1010,7 +1012,6 @@ begin
    print cells
    
 rescue ParseFailed, AlignmentTerminated
-   LOG_STREAM.puts "Parse Failed"
    block_top.upto(block_bottom).each do |i|
       puts lines[i]
    end
