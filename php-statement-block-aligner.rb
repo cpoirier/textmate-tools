@@ -383,8 +383,18 @@ protected
    end
    
    def consume_one_of( *types )
+      log(:parse) do |stream| 
+         stream.puts "   ==> attempting to consume one of #{types.collect{|t| t.to_s}.join(", ")}"
+      end
+
       types.each do |type|
-         return @lookahead.shift if la() == type 
+         if la() == type then
+            return @lookahead.shift.tap do |consumed|
+               log(:parse) do |stream| 
+                  stream.puts "   ==> consumed (#{consumed.type} #{consumed})"
+               end
+            end
+         end
       end
       
       fail()
@@ -503,19 +513,19 @@ protected
    
    def parse_sequence_or_expression()
       trace()
-      parse_binary_operator_expression(:sequence_or, :keyword_or, :parse_sequence_xor_expression)
+      parse_binary_operator_expression(:sequence_or, :keyword_or, :parse_sequence_xor_expression, :parse_sequence_xor_expression)
    end
    
    
    def parse_sequence_xor_expression()
       trace()
-      parse_binary_operator_expression(:sequence_xor, :keyword_xor, :parse_sequence_and_expression)
+      parse_binary_operator_expression(:sequence_xor, :keyword_xor, :parse_sequence_and_expression, :parse_sequnce_and_expression)
    end
    
    
    def parse_sequence_and_expression()
       trace()
-      parse_binary_operator_expression(:sequence_and, :keyword_and, :parse_assignment_expression)
+      parse_binary_operator_expression(:sequence_and, :keyword_and, :parse_assignment_expression, :parse_assignment_expression)
    end
    
    
@@ -963,7 +973,7 @@ if ENV.member?("TM_LINE_NUMBER") then
       # If we are on a blank line or a line with just a closing brace, move up until we find 
       # something that isn't.
    
-      while start_on >= 0 && (lines[start_on].strip.empty? || lines[start_on].strip == "}")
+      while start_on >= 0 && (lines[start_on].nil? || lines[start_on].strip.empty? || lines[start_on].strip == "}")
          start_on -= 1
       end
    
