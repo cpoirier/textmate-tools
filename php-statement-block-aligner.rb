@@ -28,8 +28,9 @@
 #             limitations under the License.
 # =============================================================================================
 
-LOG_CONTROL = {:parse => false, :tree => true}
-LOG_STREAM  = $stderr
+LOG_CONTROL       = {:parse => false, :tree => true}
+LOG_STREAM        = $stderr
+ALIGN_SEMICOLONS  = true
 
 
 
@@ -49,6 +50,10 @@ class Product
       @type == type
    end
    
+   def ===( type )
+      (@type == type) || super
+   end
+   
    attr_reader :type
 end
 
@@ -61,6 +66,11 @@ class Object
       name = caller(level).first.sub(/^.*in ./, "").sub(/.$/, "").intern
       instance_class.instance_method(name) 
    end
+   
+   def is_an?( value )
+      is_a?(value)
+   end
+      
 end
 
 class String
@@ -68,6 +78,19 @@ class String
       self =~ /^( +)/ ? $1.length : 0
    end
 end
+
+class ArrayOfArrays
+   def initialize( count )
+      super(count) { Hash.new }
+   end
+end
+
+class Array
+   def to_s()
+      collect{|element| element.to_s}.join("")
+   end
+end
+
 
 def log( type = :basic )
    if LOG_CONTROL[type] then
@@ -274,6 +297,16 @@ class Expression < Product
       
       stream.puts indent if inline
    end
+   
+   def method_missing( symbol, *args, &block )
+      return super unless args.empty? && block.nil?
+      return super unless @elements.member?(symbol)
+      @elements[symbol]
+   end
+   
+   def to_s()
+      @elements.collect{|name, element| element.to_s}.join("")
+   end
 end
 
 
@@ -290,6 +323,7 @@ class PHPLineParser
                      stream.puts ""
                      stream.puts "   #{line}"
                      tree.dump("   ", stream)
+                     stream.puts ""
                   end
                end
             end
@@ -655,33 +689,191 @@ end
 
 
 
+
 # =============================================================================================
 # THE COLUMNATOR
 
-class Columnator
-   def columnate( trees )
-      columnate_sequence_expression(trees)
+class Cell
+   def initialize( group, contents )
+      @group    = group
+      @contents = contents
    end
    
-   # def columnate_sequence_expression( trees )
-   #    columns = {:lhs => [], :operator => [], : rhs => []}
-   #    trees.each do |tree|
-   #       if tree.type == :sequence_or || tree.type == :sequence_and || tree.type == :sequence_xor then
-   #          columns[:lhs] << 
-   #       else
-   #       end
-   #    end
-   # end
-   # 
+   attr_accessor :contents
    
-   
-protected
-   def initialize( trees )
-      @trees = trees
+   def matches?( *types )
+      @contents.is_an?(Expression) && types.any?{|type| @contents === type} && (!block_given? || yield(@contents))
    end
    
-   def layout_sequence()
+   def split( catchall, *on )
+      if matches?(*on) then
+         @contents = yield(@contents)
+      elsif catchall then
+         @contents = catchall.add(@contents)
+      end
+   end
+   
+   
+   def to_s()
+      @group.format(@contents.to_s)
+   end
+   
+   def min_width()
+      @contents.to_s.length
+   end
+end
+
+
+class CellGroup
+   def initialize( properties = {} ) 
+      @cells             = []
+      @properties        = properties
+      @variable_width    = properties.fetch(:variable_width, false)
+      @width             = @variable_width ? 0 : nil
+      @before            = properties.fetch(:before        , ""   )
+      @after             = properties.fetch(:after         , ""   )
+      @justification     = properties.fetch(:justification , :left)
+   end
+   
+   def empty?()
+      @cells.empty?
+   end
+   
+   def width()
+      if @width.nil? then
+         @width = @cells.collect{|cell| cell.min_width}.max()
+      end
       
+      @width
+   end
+   
+   def format( string )
+      @before + (@justification == :right ? string.rjust(width()) : string.ljust(width())) + @after
+   end
+
+   def split( catchall, *on )
+      @cells.each do |cell|
+         cell.split(catchall, *on) do |expression|
+            yield(expression)
+         end
+      end
+   end
+   
+   def each()
+      @cells.each do |cell|
+         yield(cell)
+      end
+   end
+
+   def add( contents )
+      Cell.new(self, contents).tap do |cell|
+         @cells << cell
+      end
+   end
+
+   def to_s()
+      @cells.collect{|cell| cell.to_s}.join("")
+   end
+   
+   def derive_new( properties = {} )
+      column = properties.fetch(:column)
+      of     = properties.fetch(:of    )
+      
+      properties[:variable_width] = true if column == of and @variable_width
+      self.class.new( properties )
+   end
+
+
+   def columnate()
+      columnate_over_statements()
+      self
+   end
+   
+   def columnate_over_statements()
+      first_group = derive_new(:column => 1, :of => 2)
+      rest_group  = derive_new(:column => 2, :of => 2, :before => " ")
+      split(first_group, :statement_sequence) do |sequence|
+         [first_group.add(sequence.first), rest_group.add(sequence.rest)]
+      end
+      
+      first_group.columnate_over_statement()
+      rest_group.columnate_over_statements() unless rest_group.empty?
+   end
+   
+   def columnate_over_statement()
+      body_group = derive_new(:column => 1, :of => 2, :variable_width => ALIGN_SEMICOLONS ? false : true)
+      semi_group = derive_new(:column => 2, :of => 2)
+      split(nil, :statement) do |statement|
+         [body_group.add(statement.body), semi_group.add(statement.terminator)]
+      end
+      
+      body_group.columnate_by_pattern()
+   end
+
+   def columnate_by_pattern()
+      unless empty?
+         types = [:sequence_or, :sequence_and, :sequence_xor]
+         columnate_sequences(types) if @cells.any?{|cell| cell.matches?(*types)}
+         
+         types = [:assignment, :equality_test, :comparison_test]
+         columnate_binary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
+         
+         types = [:logical_or, :logical_and, :bitwise_or, :bitwise_and, :bitwise_shift, :addition, :multiplication]
+         columnate_binary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
+
+         columnate_function_calls() if @cells.any?{|cell| cell.matches?(:function_call)}
+      end
+   end
+   
+   def columnate_sequences( types )
+      lhs_group = derive_new(:column => 1, :of => 3)
+      op_group  = derive_new(:column => 2, :of => 3, :before => " ", :after => " ")
+      rhs_group = derive_new(:column => 3, :of => 3)
+
+      split(lhs_group, *types) do |expression|
+         [lhs_group.add(expression.lhs), op_group.add(expression.op), rhs_group.add(expression.rhs)]
+      end
+
+      lhs_group.columnate_by_pattern()
+      rhs_group.columnate_by_pattern()
+   end
+   
+   
+   def columnate_binary_expressions( types )
+      lhs_group = derive_new(:column => 1, :of => 3)
+      op_group  = derive_new(:column => 2, :of => 3, :before => " ", :after => " ", :justification => :right)
+      rhs_group = derive_new(:column => 3, :of => 3)
+
+      split(nil, *types) do |expression|
+         [lhs_group.add(expression.lhs), op_group.add(expression.op), rhs_group.add(expression.rhs)]
+      end
+      
+      lhs_group.columnate_by_pattern()
+      rhs_group.columnate_by_pattern()
+   end
+   
+   
+   def columnate_function_calls()      
+      0.upto(20) do |i|
+         name_group       = derive_new(:column => 1, :of => 4, :variable_width => true)
+         open_group       = derive_new(:column => 2, :of => 4)
+         parameters_group = derive_new(:column => 3, :of => 4)
+         close_group      = derive_new(:column => 4, :of => 4)
+         
+         each do |cell|
+            if cell.matches?(:function_call){|expression| i == count_parameters(expression.parameters)} then
+               expression = cell.contents
+               cell.contents = [name_group.add(expression.name), open_group.add(expression.open_paren), parameters_group.add(expression.parameters), close_group.add(expression.close_paren)]
+            end
+         end
+      end
+   end
+   
+   
+   def count_parameters( parameters )
+      return 0 if parameters.nil?
+      return 1 unless parameters.type == :comma_list
+      return 1 + count_parameters(parameters.rhs)
    end
    
 end
@@ -758,10 +950,13 @@ end
 # Process the subject lines.
 
 begin
-   trees = []
+   cells = CellGroup.new(:variable_width => true, :after => "\n")
    block_top.upto(block_bottom).each do |i|
-      trees << PHPLineParser.parse(lines[i], i + 1)
+      cells.add(PHPLineParser.parse(lines[i], i + 1))
    end   
+   
+   cells.columnate()
+   print cells
    
 rescue ParseFailed, AlignmentTerminated
    LOG_STREAM.puts "Parse Failed"
