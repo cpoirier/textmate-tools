@@ -31,6 +31,7 @@
 LOG_CONTROL       = {:parse => false, :tree => false}
 LOG_STREAM        = $stderr
 ALIGN_SEMICOLONS  = false
+TAB_WIDTH         = 2
 
 
 
@@ -143,6 +144,10 @@ class PHPTokenizer
    
    def restore( mark )
       @pos = mark.first
+   end
+   
+   def reset()
+      @pos = 0
    end
    
    
@@ -316,14 +321,29 @@ class PHPLineParser
       
       self.new(PHPTokenizer.new(line, number)).tap do |parser|
          parser.instance_eval do
-            parse_statements().tap do |tree|
-               if result = tree then
-                  log(:tree) do |stream|
-                     stream.puts ""
-                     stream.puts "   #{line}"
-                     tree.dump("   ", stream)
-                     stream.puts ""
+            if la() == :comma then
+               result = fail_unless(parse_prefix_list_item())
+               fail_unless_done()
+            else
+               begin
+                  result = parse_statements()
+               rescue ParseFailed => e
+                  reset()
+                  attempt do
+                     result = parse_postfix_list_item()
+                     fail_unless_done()
                   end
+                  
+                  result or raise
+               end
+            end
+            
+            if result then 
+               log(:tree) do |stream|
+                  stream.puts ""
+                  stream.puts "   #{line}"
+                  result.dump("   ", stream)
+                  stream.puts ""
                end
             end
          end
@@ -340,6 +360,11 @@ protected
       @tokenizer = tokenizer
       @lookahead = []
       @trace     = []
+   end
+   
+   def reset()
+      @lookahead.clear()
+      @tokenizer.reset()
    end
    
    def la( distance = 1, return_token = false )
@@ -408,6 +433,10 @@ protected
       expression
    end
    
+   def fail_unless_done()
+      la() == nil or fail()
+   end
+   
    def attempt_optional()
       value = nil
       begin
@@ -455,6 +484,14 @@ protected
    end
    
 protected
+
+   def parse_prefix_list_item()
+      Expression.new(:prefix_list_item, :comma => consume(:comma), :expression => fail_unless(parse_expression()))
+   end
+   
+   def parse_postfix_list_item()
+      Expression.new(:postfix_list_item, :expression => fail_unless(parse_expression()), :comma => (la() == (:comma) ? consume(:comma) : nil))
+   end
    
    def parse_statements( terminator = nil )
       trace()
@@ -804,7 +841,13 @@ class CellGroup
 
 
    def columnate()
-      columnate_over_statements()
+      case @cells[0].contents.type
+      when :postfix_list_item, :prefix_list_item
+         columnate_over_list_items()
+      else
+         columnate_over_statements()
+      end
+      
       self
    end
    
@@ -827,6 +870,26 @@ class CellGroup
       end
       
       body_group.columnate_by_pattern()
+   end
+   
+   
+   def columnate_over_list_items()
+      prefix_group  = derive_new(:column => 1, :of => 3, :after => " ")
+      main_group    = derive_new(:column => 2, :of => 3)
+      postfix_group = derive_new(:column => 3, :of => 3)
+      
+      each do |cell|
+         item = cell.contents
+         if cell.matches?(:prefix_list_item) then
+            cell.contents = [prefix_group.add(item.comma), main_group.add(item.expression), postfix_group.add(nil)]
+         elsif cell.matches?(:postfix_list_item) then            
+            cell.contents = [prefix_group.add(nil), main_group.add(item.expression), postfix_group.add(item.comma)]
+         else
+            cell.contents = [prefix_group.add(nil), main_group.add(item), postfix_group.add(nil)]
+         end
+      end
+
+      main_group.columnate_by_pattern()
    end
 
    def columnate_by_pattern()
@@ -1030,11 +1093,12 @@ if ENV.member?("TM_LINE_NUMBER") then
    
       #
       # Now, find the block top and bottom. All lines in an inferred block must start on the
-      # same column. We don't handle tabs, because we have no way of knowing how wide they 
-      # should be. Besides, tabs are evil.
+      # same column. We convert leading tabs to spaces first, in an attempt to provide reasonable
+      # behaviour in the presence of such invisible evil. Unfortunately, evil will be evil, and 
+      # this may not actually improve things.
    
       block_top = block_bottom = start_on
-      leading_spaces = lines[start_on].leading_spaces
+      leading_spaces = lines[start_on].gsub("\t", " " * TAB_WIDTH).leading_spaces
    
       start_on.downto(0) do |i|
          break if lines[i].nil? || lines[i].strip.empty? || lines[i].leading_spaces != leading_spaces
