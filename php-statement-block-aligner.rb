@@ -30,7 +30,7 @@
 
 LOG_CONTROL       = {:parse => false, :tree => false}
 LOG_STREAM        = $stderr
-ALIGN_SEMICOLONS  = true
+ALIGN_SEMICOLONS  = false
 
 
 
@@ -151,9 +151,9 @@ class PHPTokenizer
    @@words         = /^((\$?[a-zA-Z_]+))/
    @@in_equalities = /^(==(=?)|!=(=*))/ 
    @@comparators   = /^>(=?)|<(=?)|<>/
-   @@assigners     = /^([-+*\/%.^]|<<|>>)?=/
+   @@assigners     = /^(=>|([-+*\/%.^]|<<|>>)?\=)/
    @@scopers       = /^(->|::)/
-   @@structural    = /^([(){}\[\]?:,@;]|=>)/
+   @@structural    = /^([(){}\[\]?:,@;])/
    @@operators     = /^(\+(\+?)|-(-?)|!|~|\^|\*|\/|%|\.|\|(\|?))|>>|<<|&(&?)/
       
    def next_token()
@@ -186,7 +186,6 @@ class PHPTokenizer
             when ","         ; token = Token.new(:comma           , consume(1)            )
             when "@"         ; token = Token.new(:at              , consume(1)            )
             when ";"         ; token = Token.new(:semicolon       , consume(1)            )
-            when "=>"        ; token = Token.new(:pairer          , consume(2)            )
             when "("         ; token = Token.new(:open_paren      , consume(1)            )
             when ")"         ; token = Token.new(:close_paren     , consume(1)            )
             when "["         ; token = Token.new(:open_bracket    , consume(1)            )
@@ -599,7 +598,16 @@ protected
    
    def parse_at_expression()
       trace()
-      la() == :at ? Expression.new(:error_suppression, :op => consume(:at), :expression => fail_unless(parse_at_expression())) : parse_parenthesized_expression()
+      la() == :at ? Expression.new(:error_suppression, :op => consume(:at), :expression => fail_unless(parse_at_expression())) : parse_lifecycle_expression()
+   end
+   
+   def parse_lifecycle_expression()
+      trace()
+      if la() == :keyword_new || la() == :keyword_clone then
+         Expression.new(:lifecycle_expression, :op => consume(), :expression => fail_unless(parse_object_expression()))
+      else
+         parse_parenthesized_expression()
+      end 
    end
    
    def parse_parenthesized_expression()
@@ -807,12 +815,12 @@ class CellGroup
          [first_group.add(sequence.first), rest_group.add(sequence.rest)]
       end
       
-      first_group.columnate_over_statement()
+      first_group.columnate_over_statement(!rest_group.empty?)
       rest_group.columnate_over_statements() unless rest_group.empty?
    end
    
-   def columnate_over_statement()
-      body_group = derive_new(:column => 1, :of => 2, :variable_width => ALIGN_SEMICOLONS ? false : true)
+   def columnate_over_statement( align_semicolons = false )
+      body_group = derive_new(:column => 1, :of => 2, :variable_width => (align_semicolons || ALIGN_SEMICOLONS ? false : true))
       semi_group = derive_new(:column => 2, :of => 2)
       split(nil, :statement) do |statement|
          [body_group.add(statement.body), semi_group.add(statement.terminator)]
@@ -837,6 +845,9 @@ class CellGroup
 
          types = [:error_suppression, :prefix]
          columnate_unary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
+
+         types = [:lifecycle_expression]
+         columnate_lifecycle_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
 
          types = [:parenthesized_expression]
          columnate_parenthesized_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
@@ -892,8 +903,8 @@ class CellGroup
    end
 
 
-   def columnate_unary_expressions( types )
-      op_group   = derive_new(:column => 1, :of => 2)
+   def columnate_unary_expressions( types, space_after = "" )
+      op_group   = derive_new(:column => 1, :of => 2, :after => space_after)
       body_group = derive_new(:column => 2, :of => 2)
       
       split(nil, *types) do |expression|
@@ -902,7 +913,11 @@ class CellGroup
       
       body_group.columnate_by_pattern() unless body_group.empty?
    end
-
+   
+   def columnate_lifecycle_expressions( types )
+      columnate_unary_expressions(types, space_after = " ")
+   end
+   
 
    def columnate_parenthesized_expressions( types )
       open_group  = derive_new(:column => 1, :of => 3)
@@ -949,6 +964,7 @@ class CellGroup
       end
       
       first_group.columnate_by_pattern()
+      rest_group.columnate_by_pattern()
       rest_group.columnate_comma_lists() unless rest_group.empty?
    end
    
