@@ -1,10 +1,10 @@
 #!/usr/bin/env ruby
 # =============================================================================================
-# PHP statement block aligner
+# PHP statement block columnator
 #
-# This script can be used as a command for TextMate to horizontally align the major structures 
-# within a block of similar PHP statements. When using it with TextMate, set the command input 
-# to "Selected Text" or "Document", and the output to "Replace Selected Text". Map it to a key 
+# This script can be used as a command for TextMate to columnate the major structures within
+# a block of similar PHP statements. When using it with TextMate, set the command input to 
+# "Selected Text" or "Document", and the output to "Replace Selected Text". Map it to a key 
 # equivalent, and any time you want to tidy up a block, either select it, or put your cursor 
 # within or just below it, and voila.
 #
@@ -13,7 +13,7 @@
 # PHP, as it has to know a lot about the language in order to work. Versions for other 
 # languages may follow.
 #
-# [Website]   http://github.com/cpoirier/textmate-tools/php-statement-block-aligner.rb
+# [Website]   http://github.com/cpoirier/textmate-tools/php-statement-block-columnator.rb
 # [Copyright] Copyright 2012 Chris Poirier
 # [License]   Licensed under the Apache License, Version 2.0 (the "License");
 #             you may not use this file except in compliance with the License.
@@ -38,8 +38,8 @@ ALIGN_SEMICOLONS  = false
 # =============================================================================================
 # BASIC COMPONENTS
 
-class AlignmentTerminated < Exception ; end    # Raised when we just need to bail out.
-class ParseFailed         < Exception ; end    # Raised when parsing fails.
+class ColumnationTerminated < Exception ; end    # Raised when we just need to bail out.
+class ParseFailed           < Exception ; end    # Raised when parsing fails.
 
 class Product
    def initialize( type )
@@ -242,7 +242,7 @@ class PHPTokenizer
             end
             token = Token.new(:string, characters.join())
          else
-            raise AlignmentTerminated.new("cannot tokenize: #{@line[@pos]}")
+            raise ColumnationTerminated.new("cannot tokenize: #{@line[@pos]}")
          end
       end
       
@@ -1071,7 +1071,7 @@ begin
    cells.columnate()
    print cells
    
-rescue ParseFailed, AlignmentTerminated
+rescue ParseFailed, ColumnationTerminated
    block_top.upto(block_bottom).each do |i|
       puts lines[i]
    end
