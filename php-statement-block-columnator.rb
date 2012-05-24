@@ -153,7 +153,7 @@ class PHPTokenizer
    
    @@whitespace    = /^[ \t\r\n]+/
    @@numbers       = /^((\d+(?:\.\d*)?)|(\.\d+))/
-   @@words         = /^((\$?[a-zA-Z_]+))/
+   @@words         = /^(\$?[a-zA-Z_][a-zA-Z0-9_]*)/
    @@in_equalities = /^(==(=?)|!=(=*))/ 
    @@comparators   = /^>(=?)|<(=?)|<>/
    @@assigners     = /^(=>|([-+*\/%.^]|<<|>>)?\=)/
@@ -750,9 +750,10 @@ end
 # THE COLUMNATOR
 
 class Cell
-   def initialize( group, contents )
+   def initialize( group, contents, index )
       @group    = group
       @contents = contents
+      @index    = index
    end
    
    attr_accessor :contents
@@ -771,7 +772,7 @@ class Cell
    
    
    def to_s()
-      @group.format(@contents.to_s)
+      @group.format(@contents.to_s, @index)
    end
    
    def min_width()
@@ -785,6 +786,7 @@ class CellGroup
       @cells             = []
       @properties        = properties
       @variable_width    = properties.fetch(:variable_width, false)
+      @offset_width      = properties.fetch(:offset_width  , nil  )
       @width             = @variable_width ? 0 : nil
       @before            = properties.fetch(:before        , ""   )
       @after             = properties.fetch(:after         , ""   )
@@ -803,8 +805,17 @@ class CellGroup
       @width
    end
    
-   def format( string )
-      @before + (@justification == :right ? string.rjust(width()) : string.ljust(width())) + @after
+   def offset_width( index )
+      if @max_width.nil? then
+         @max_width = @cells.collect{|cell| cell.min_width}.max()
+      end
+      
+      @max_width - @cells[index].min_width
+   end
+   
+   def format( string, index )
+      # width = @offset_width ? (width() + @offset_width.offset_width(index)) : width()
+      @before + (@justification == :right ? string.rjust(width) : string.ljust(width)) + @after
    end
 
    def split( catchall, *on )
@@ -822,7 +833,7 @@ class CellGroup
    end
 
    def add( contents )
-      Cell.new(self, contents).tap do |cell|
+      Cell.new(self, contents, @cells.length).tap do |cell|
          @cells << cell
       end
    end
@@ -996,12 +1007,33 @@ class CellGroup
    
    
    def columnate_function_calls()      
-      0.upto(20) do |parameter_count|
+      parameter_counts = []
+      each do |cell|
+         if cell.matches?(:function_call, :list_receiver) then
+            parameter_counts << count_parameters(cell.contents.parameters)
+         end
+      end
+      
+      variable_width = false
+      parameter_counts.uniq.sort.each do |parameter_count|
+         if parameter_count == 1 then
+            name_widths = []
+            each do |cell|
+               if cell.matches?(:function_call, :list_receiver){|expression| parameter_count == count_parameters(expression.parameters)} then
+                  name_widths << cell.contents.name.to_s.length
+               end
+            end
+         
+            min_name_width = name_widths.min()
+            max_name_width = name_widths.max()
+            variable_width = (max_name_width - min_name_width >= 3)
+         end
+         
          name_group       = derive_new(:column => 1, :of => 4, :variable_width => true)
          open_group       = derive_new(:column => 2, :of => 4)
-         parameters_group = derive_new(:column => 3, :of => 4)
+         parameters_group = derive_new(:column => 3, :of => 4, :variable_width => variable_width)
          close_group      = derive_new(:column => 4, :of => 4)
-         
+
          each do |cell|
             if cell.matches?(:function_call, :list_receiver){|expression| parameter_count == count_parameters(expression.parameters)} then
                expression = cell.contents
@@ -1009,7 +1041,8 @@ class CellGroup
             end
          end
 
-         parameters_group.columnate_comma_lists() if parameter_count > 0
+         parameters_group.columnate_comma_lists()
+         variable_width = true
       end
    end
    
@@ -1020,12 +1053,13 @@ class CellGroup
       rest_group  = derive_new(:column => 3, :of => 3)
       
       each do |cell|
+         comma_list = cell.contents
          if cell.matches?(:comma_list) then
-            comma_list = cell.contents
             cell.contents = [first_group.add(comma_list.first), comma_group.add(comma_list.comma), rest_group.add(comma_list.rest)]
          end
       end
       
+      columnate_by_pattern()
       first_group.columnate_by_pattern()
       rest_group.columnate_by_pattern()
       rest_group.columnate_comma_lists() unless rest_group.empty?
