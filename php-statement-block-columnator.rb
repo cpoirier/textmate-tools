@@ -321,21 +321,16 @@ class PHPLineParser
       
       self.new(PHPTokenizer.new(line, number)).tap do |parser|
          parser.instance_eval do
-            if la() == :comma then
-               result = fail_unless(parse_prefix_list_item())
-               fail_unless_done()
-            else
-               begin
-                  result = parse_statements()
-               rescue ParseFailed => e
-                  reset()
-                  attempt do
-                     result = parse_postfix_list_item()
-                     fail_unless_done()
-                  end
-                  
-                  result or raise
+            begin
+               result = parse_statements()
+            rescue ParseFailed => e
+               reset()
+               attempt do
+                  result = parse_list_item()
+                  fail_unless_done()
                end
+               
+               result or raise
             end
             
             if result then 
@@ -485,12 +480,8 @@ protected
    
 protected
 
-   def parse_prefix_list_item()
-      Expression.new(:prefix_list_item, :comma => consume(:comma), :expression => fail_unless(parse_expression()))
-   end
-   
-   def parse_postfix_list_item()
-      Expression.new(:postfix_list_item, :expression => fail_unless(parse_expression()), :comma => (la() == (:comma) ? consume(:comma) : nil))
+   def parse_list_item()
+      Expression.new(:list_item, :expression => fail_unless(parse_expression()), :comma => (la() == (:comma) ? consume(:comma) : nil))
    end
    
    def parse_statements( terminator = nil )
@@ -853,7 +844,7 @@ class CellGroup
 
    def columnate()
       case @cells[0].contents.type
-      when :postfix_list_item, :prefix_list_item
+      when :list_item
          columnate_over_list_items()
       else
          columnate_over_statements()
@@ -885,22 +876,18 @@ class CellGroup
    
    
    def columnate_over_list_items()
-      prefix_group  = derive_new(:column => 1, :of => 3, :after => " ")
-      main_group    = derive_new(:column => 2, :of => 3)
-      postfix_group = derive_new(:column => 3, :of => 3)
+      expression_group = derive_new(:column => 1, :of => 2)
+      comma_group      = derive_new(:column => 2, :of => 2)
       
       each do |cell|
          item = cell.contents
-         if cell.matches?(:prefix_list_item) then
-            cell.contents = [prefix_group.add(item.comma), main_group.add(item.expression), postfix_group.add(nil)]
-         elsif cell.matches?(:postfix_list_item) then            
-            cell.contents = [prefix_group.add(nil), main_group.add(item.expression), postfix_group.add(item.comma)]
-         else
-            cell.contents = [prefix_group.add(nil), main_group.add(item), postfix_group.add(nil)]
+         if cell.matches?(:list_item) then            
+            cell.contents = [expression_group.add(item.expression), comma_group.add(item.comma)]
          end
       end
 
-      main_group.columnate_by_pattern()
+      columnate_by_pattern()
+      expression_group.columnate_by_pattern()
    end
 
    def columnate_by_pattern()
