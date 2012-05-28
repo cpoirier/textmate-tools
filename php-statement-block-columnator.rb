@@ -1154,7 +1154,9 @@ begin
    end   
    
    cells.columnate()
-   print cells
+   cells.each do |cell|
+      puts cell.to_s.sub(/\s*$/, "")
+   end
    
 rescue ParseFailed, ColumnationTerminated
    block_top.upto(block_bottom).each do |i|
@@ -1167,7 +1169,7 @@ end
 # Output the lines after, unchanged.
 
 if block_bottom + 1 < lines.length then
-   (block_bottom + 1).upto(lines.length) do |i|
+   (block_bottom + 1).upto(lines.length - 1) do |i|
       puts lines[i]
    end
 end
