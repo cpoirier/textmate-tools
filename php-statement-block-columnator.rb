@@ -155,7 +155,7 @@ class PHPTokenizer
    @@numbers       = /^((\d+(?:\.\d*)?)|(\.\d+))/
    @@words         = /^(\$?[a-zA-Z_][a-zA-Z0-9_]*)/
    @@in_equalities = /^(==(=?)|!=(=*))/ 
-   @@comparators   = /^>(=?)|<(=?)|<>/
+   @@comparators   = /^(>(=?)|<(=?)|<>)/
    @@assigners     = /^(=>|([-+*\/%.^]|<<|>>)?\=)/
    @@scopers       = /^(->|::)/
    @@structural    = /^([(){}\[\]?:,@;])/
