@@ -774,6 +774,10 @@ class Cell
    def min_width()
       @contents.to_s.length
    end
+   
+   def integer?()
+      @contents.to_s =~ /^\d*$/
+   end
 end
 
 
@@ -783,7 +787,7 @@ class CellGroup
       @properties        = properties
       @variable_width    = properties.fetch(:variable_width, false)
       @offset_width      = properties.fetch(:offset_width  , nil  )
-      @width             = @variable_width ? 0 : nil
+      @width             = nil
       @before            = properties.fetch(:before        , ""   )
       @after             = properties.fetch(:after         , ""   )
       @justification     = properties.fetch(:justification , :left)
@@ -794,11 +798,13 @@ class CellGroup
    end
    
    def width()
-      if @width.nil? then
+      if @variable_width && justification() != :right then
+         0
+      elsif @width.nil? then
          @width = @cells.collect{|cell| cell.min_width}.max()
+      else 
+         @width
       end
-      
-      @width
    end
    
    def offset_width( index )
@@ -809,9 +815,21 @@ class CellGroup
       @max_width - @cells[index].min_width
    end
    
+   def justification()
+      all_integers? ? :right : @justification
+   end
+   
+   def all_integers?()
+      if @all_integers.nil? then
+         @all_integers = @cells.all?{|cell| cell.integer?()}
+      end
+      
+      @all_integers
+   end
+   
    def format( string, index )
       # width = @offset_width ? (width() + @offset_width.offset_width(index)) : width()
-      @before + (@justification == :right ? string.rjust(width) : string.ljust(width)) + @after
+      @before + (justification() == :right ? string.rjust(width) : string.ljust(width)) + @after
    end
 
    def split( catchall, *on )
