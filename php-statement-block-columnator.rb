@@ -621,7 +621,7 @@ protected
    
    def parse_logical_not_expression()
       trace()
-      la() == :exclamation ? Expression.new(:logical_not, :op => consume(:exclamation), :expression => fail_unless(parse_logical_not())) : parse_at_expression()
+      la() == :exclamation ? Expression.new(:logical_not, :op => consume(:exclamation), :expression => fail_unless(parse_logical_not_expression())) : parse_at_expression()
    end
    
    def parse_at_expression()
@@ -632,7 +632,12 @@ protected
    def parse_lifecycle_expression()
       trace()
       if la() == :keyword_new || la() == :keyword_clone then
-         Expression.new(:lifecycle_expression, :op => consume(), :expression => fail_unless(parse_object_expression()))
+         operator = consume()
+         if la(1) == :word and la(2) == :open_paren then
+            Expression.new(:lifecycle_expression, :op => operator, :expression => fail_unless(parse_function_call_expression()))
+         else
+            Expression.new(:lifecycle_expression, :op => operator, :expression => consume(:word))
+         end
       else
          parse_parenthesized_expression()
       end 
@@ -904,8 +909,8 @@ class CellGroup
          types = [:ternary_expression]
          columnate_ternary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
 
-         types = [:error_suppression, :prefix]
-         columnate_unary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
+         types = [:error_suppression, :prefix, :logical_not]
+         columnate_prefix_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
 
          types = [:lifecycle_expression]
          columnate_lifecycle_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
@@ -964,8 +969,24 @@ class CellGroup
    end
 
 
-   def columnate_unary_expressions( types, space_after = "" )
-      op_group   = derive_new(:column => 1, :of => 2, :after => space_after)
+   def columnate_prefix_expressions( types, space_after = "" )
+      op_group   = derive_new(:column => 1, :of => 2, :after => space_after, :justification => :right)
+      body_group = derive_new(:column => 2, :of => 2)
+      
+      each do |cell|
+         expression = cell.contents
+         if cell.matches?(*types) then
+            cell.contents = [op_group.add(expression.op), body_group.add(expression.expression)]
+         else
+            cell.contents = [op_group.add(""           ), body_group.add(expression           )]
+         end
+      end
+      
+      body_group.columnate_by_pattern() unless body_group.empty?
+   end
+   
+   def columnate_lifecycle_expressions( types )
+      op_group   = derive_new(:column => 1, :of => 2, :after => " ", :justification => :right)
       body_group = derive_new(:column => 2, :of => 2)
       
       split(nil, *types) do |expression|
@@ -973,10 +994,6 @@ class CellGroup
       end
       
       body_group.columnate_by_pattern() unless body_group.empty?
-   end
-   
-   def columnate_lifecycle_expressions( types )
-      columnate_unary_expressions(types, space_after = " ")
    end
    
 
@@ -1155,7 +1172,7 @@ begin
    
    cells.columnate()
    cells.each do |cell|
-      puts cell.to_s.sub(/\s*$/, "")
+      puts cell.to_s.sub(/\s+$/, "")
    end
    
 rescue ParseFailed, ColumnationTerminated
