@@ -676,22 +676,22 @@ protected
    
    def parse_postfix_expression()
       trace()
-      expression = parse_function_call_expression()
+      expression = parse_object_expression()
       la_is_one_of?(:plusplus, :minusminus) ? Expression.new(:postfix, :expression => expression, :op => consume()) : expression
    end
    
-   def parse_function_call_expression()
-      expression = parse_object_expression()
-      if la() == :open_paren then
-         expression = Expression.new(:function_call, :name => expression, :open_paren => consume(:open_paren), :parameters => attempt_optional{parse_comma_list()}, :close_paren => consume(:close_paren))
+   def parse_object_expression()
+      expression = parse_function_call_expression()
+      if la() == :scoper then
+         expression = Expression.new(:object_expression, :expression => expression, :scoper => consume(:scoper), :offset => fail_unless(parse_object_expression()))
       end
       expression
    end
       
-   def parse_object_expression()
+   def parse_function_call_expression()
       expression = parse_simple_expression()
-      if la() == :scoper then
-         expression = Expression.new(:object_expression, :expression => expression, :scoper => consume(:scoper), :offset => fail_unless(parse_object_expression()))
+      if la() == :open_paren then
+         expression = Expression.new(:function_call, :name => expression, :open_paren => consume(:open_paren), :parameters => attempt_optional{parse_comma_list()}, :close_paren => consume(:close_paren))
       end
       expression
    end
@@ -749,6 +749,7 @@ class Cell
    def initialize( group, contents, index )
       @group    = group
       @contents = contents
+      @unspaced = nil
       @index    = index
    end
    
@@ -768,15 +769,19 @@ class Cell
    
    
    def to_s()
-      @group.format(@contents.to_s, @index)
+      @group.format(unspaced(), @index)
    end
    
    def min_width()
-      @contents.to_s.length
+      unspaced().length
    end
    
    def integer?()
-      @contents.to_s =~ /^\d*$/
+      unspaced() =~ /^\d+$/
+   end
+   
+   def unspaced()
+      @unspaced ||= @contents.to_s
    end
 end
 
@@ -816,20 +821,21 @@ class CellGroup
    end
    
    def justification()
-      all_integers? ? :right : @justification
+      @justification
    end
    
-   def all_integers?()
-      if @all_integers.nil? then
-         @all_integers = @cells.all?{|cell| cell.integer?()}
+   def several_integers?()
+      if !defined?(@several_integers) then 
+         count = @cells.count{|cell| cell.integer?}
+         @several_integers = (count > 1)
       end
       
-      @all_integers
+      @several_integers
    end
    
    def format( string, index )
       # width = @offset_width ? (width() + @offset_width.offset_width(index)) : width()
-      @before + (justification() == :right ? string.rjust(width) : string.ljust(width)) + @after
+      @before + (justification() == :right || (several_integers? && string =~ /^\d+$/) ? string.rjust(width) : string.ljust(width)) + @after
    end
 
    def split( catchall, *on )
@@ -920,6 +926,9 @@ class CellGroup
          
          types = [:logical_or, :logical_and, :bitwise_or, :bitwise_and, :bitwise_shift, :addition, :multiplication]
          columnate_binary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
+         
+         types = [:object_expression]
+         columnate_object_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
 
          types = [:assignment, :equality_test, :comparison_test]
          columnate_binary_expressions(types) if @cells.any?{|cell| cell.matches?(*types)}
@@ -969,6 +978,24 @@ class CellGroup
       rhs_group.columnate_by_pattern()
    end
    
+   
+   def columnate_object_expressions( types )
+      expression_group = derive_new(:column => 1, :of => 3, :variable_width => true)
+      op_group         = derive_new(:column => 2, :of => 3)
+      offset_group     = derive_new(:column => 3, :of => 3)
+      
+      each do |cell|
+         e = cell.contents
+         if cell.matches?(*types) then
+            cell.contents = [expression_group.add(e.expression), op_group.add(e.scoper), offset_group.add(e.offset)]
+         else
+            cell.contents = expression_group.add(e)
+         end
+      end
+      
+      expression_group.columnate_by_pattern()
+      offset_group.columnate_by_pattern()
+   end
    
    def columnate_ternary_expressions( types )
       condition_group = derive_new(:column => 1, :of => 5)
