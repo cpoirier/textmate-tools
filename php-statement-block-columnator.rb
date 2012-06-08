@@ -746,11 +746,12 @@ end
 # THE COLUMNATOR
 
 class Cell
-   def initialize( group, contents, index )
+   def initialize( group, contents, index, flags = {} )
       @group    = group
       @contents = contents
-      @unspaced = nil
       @index    = index
+      @flags    = flags
+      @unspaced = nil
    end
    
    attr_accessor :contents
@@ -769,7 +770,7 @@ class Cell
    
    
    def to_s()
-      @group.format(unspaced(), @index)
+      @group.format(unspaced(), @index, @flags)
    end
    
    def min_width()
@@ -833,9 +834,13 @@ class CellGroup
       @several_integers
    end
    
-   def format( string, index )
-      # width = @offset_width ? (width() + @offset_width.offset_width(index)) : width()
-      @before + (justification() == :right || (several_integers? && string =~ /^\d+$/) ? string.rjust(width) : string.ljust(width)) + @after
+   def format( string, index, overrides = {} )
+      before = overrides.fetch(:before        , @before)
+      after  = overrides.fetch(:after         , @after )
+      width  = overrides.fetch(:variable_width, false  ) ? 0 : width()
+      rjust  = overrides.fetch(:justification , justification()) == :right || (several_integers? && string =~ /^\d+$/)
+
+      before + (rjust ? string.rjust(width) : string.ljust(width)) + after
    end
 
    def split( catchall, *on )
@@ -852,8 +857,8 @@ class CellGroup
       end
    end
 
-   def add( contents )
-      Cell.new(self, contents, @cells.length).tap do |cell|
+   def add( contents, flags = {} )
+      Cell.new(self, contents, @cells.length, flags).tap do |cell|
          @cells << cell
       end
    end
@@ -1056,44 +1061,52 @@ class CellGroup
    
    
    def columnate_function_calls()      
-      parameter_counts = []
+      names = Hash.new{|hash, key| hash[key] = []}
       each do |cell|
          if cell.matches?(:function_call, :list_receiver) then
-            parameter_counts << count_parameters(cell.contents.parameters)
+            names[cell.contents.name.to_s] << count_parameters(cell.contents.parameters)
          end
       end
       
-      variable_width = false
-      parameter_counts.uniq.sort.each do |parameter_count|
-         if parameter_count == 1 then
-            name_widths = []
-            each do |cell|
-               if cell.matches?(:function_call, :list_receiver){|expression| parameter_count == count_parameters(expression.parameters)} then
-                  name_widths << cell.contents.name.to_s.length
-               end
-            end
-         
-            min_name_width = name_widths.min()
-            max_name_width = name_widths.max()
-            variable_width = (max_name_width - min_name_width >= 3)
+      names.each do |name, counts|
+         count       = counts.max()
+         columns     = 3 + (count > 0 ? count * 2 - 1 : 0) 
+         name_group  = derive_new(:column => 1, :of => columns)
+         open_group  = derive_new(:column => 2, :of => columns)
+         tail_groups = []
+         (columns - 2).times do |i|
+            tail_groups << derive_new(:column => 3 + i, :of => columns)
          end
          
-         name_group       = derive_new(:column => 1, :of => 4, :variable_width => true)
-         open_group       = derive_new(:column => 2, :of => 4)
-         parameters_group = derive_new(:column => 3, :of => 4, :variable_width => variable_width)
-         close_group      = derive_new(:column => 4, :of => 4)
-
          each do |cell|
-            if cell.matches?(:function_call, :list_receiver){|expression| parameter_count == count_parameters(expression.parameters)} then
+            if cell.matches?(:function_call, :list_receiver){|expression| expression.name.to_s == name} then
                expression = cell.contents
-               cell.contents = [name_group.add(expression.name), open_group.add(expression.open_paren), parameters_group.add(expression.parameters), close_group.add(expression.close_paren)]
+               contents   = []
+               contents  << name_group.add(expression.name)
+               contents  << open_group.add(expression.open_paren)
+               
+               index = 0
+               flatten_parameters(expression.parameters).each do |parameter|
+                  if parameter.type == :comma then
+                     contents << tail_groups[index].add(parameter, :after => " ")
+                  else
+                     contents << tail_groups[index].add(parameter)
+                  end
+                  
+                  index += 1
+               end
+               
+               contents << tail_groups[index].add(expression.close_paren, :variable_width => true);
+               
+               cell.contents = contents
             end
          end
-
-         parameters_group.columnate_comma_lists()
-         variable_width = true
+         
+         tail_groups.each do |tail_group|
+            tail_group.columnate_by_pattern()
+         end
       end
-   end
+  end
    
    
    def columnate_comma_lists()
@@ -1132,6 +1145,12 @@ class CellGroup
       return 0 if parameters.nil?
       return 1 unless parameters.type == :comma_list
       return 1 + count_parameters(parameters.rest)
+   end
+   
+   def flatten_parameters( parameters )
+      return [] if parameters.nil?
+      return [parameters] unless parameters.type == :comma_list
+      return [parameters.first, parameters.comma] + flatten_parameters(parameters.rest)
    end
    
 end
